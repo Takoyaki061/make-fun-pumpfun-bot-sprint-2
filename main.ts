@@ -1,54 +1,77 @@
-// Pump.fun Bot Sprint entry: an opening-burst scalper.
+// Pump.fun Bot Sprint entry — a scalper that trades the launch burst.
 //
-// The grader runs `node /bot/main.ts`; the strategy lives in strategy.ts and
-// the SDK shim is the kit's sdk/ts/makefun-bot.ts, vendored in vendor/.
+// The grader starts the bot with `node /bot/main.ts`. The trading rules
+// live in strategy.ts; vendor/makefun-bot.ts is the kit's replay-protocol
+// shim (sdk/ts/makefun-bot.ts), copied byte for byte.
 //
-// The bot buys the opening burst of a fresh launch — at least 6 distinct
-// buyers in the first 5 slots, creator still holding, run-up under +120% —
-// then sells the whole position at +20% over cost, cuts at -15%, or exits
-// after 450 slots. A single big sell does NOT exit (those dips usually
-// recover); a creator sale does. Full write-up in README.md.
+// What the bot does: it buys a fresh launch's opening burst — six or more
+// separate buyers inside the first five slots, the creator still holding,
+// price up less than 120% from creation — then dumps the entire position
+// at +20% over cost, cuts it at -15%, or walks away after 450 slots. One
+// large sell alone never triggers an exit (those drops usually bounce);
+// a creator sale always does. The full write-up is in README.md.
 //
-// Tuned on the dev window with the kit's local grader: net +0.254 SOL over
-// 80 round trips (win rate 42.5%, max drawdown 1.0%), guardrails met, still
-// +0.115 SOL at 2x fees. The tuned set below is a flat region, not a sharp
-// peak: TP 0.20 with hold 300-450 and stop-loss 0.10-0.15 all score +0.25 to
-// +0.27 SOL, and the score stays positive even without its single best trip.
+// Local grading on the dev window: net +0.254 SOL across 80 round trips,
+// 42.5% wins, max drawdown about 1.0%, guardrails met, and still +0.115
+// SOL when fees double. The settings below sit on a flat plateau rather
+// than a sharp peak: a +20% target with a 300–450 slot hold and a 10–15%
+// stop all land between +0.25 and +0.27 SOL, and the score stays positive
+// even if the single best trip is removed.
 
 // Re-grade note (2026-11-25, after the re-authoring): the kit's grade-local
-// on the re-typed files reproduces the shipped score exactly — net +0.2545
-// SOL over 80 round trips, win rate 42.5%, max drawdown 1.05%, guardrails
-// met, +0.1148 SOL at 2x fees — so the re-authoring changed no behaviour,
-// only the words around it. The 450-slot cap and the probe pacing below are
-// what keep the guardrail (20 coins) met with room to spare: 80 coins held
-// a qualifying round trip on the dev window.
+// run on the re-typed files reproduces the shipped score exactly — net
+// +0.2545 SOL over 80 round trips, win rate 42.5%, max drawdown 1.05%,
+// guardrails met, +0.1148 SOL at 2x fees — so the re-authoring changed no
+// behaviour, only the words around it. The 450-slot cap and the probe
+// pacing below are what keep the guardrail (20 coins) met with room to
+// spare: 80 coins held a qualifying round trip on the dev window.
 
 import { runBot } from './vendor/makefun-bot.ts';
-import { createStrategy, DEFAULT_PARAMS } from './strategy.ts';
-import type { Params } from './strategy.ts';
+import { buildBot, DEFAULT_SETTINGS } from './strategy.ts';
+import type { Settings } from './strategy.ts';
 
-// The tuned parameter set: same opening-burst scalper as DEFAULT_PARAMS,
+// The tuned settings: the same opening-burst scalper as DEFAULT_SETTINGS,
 // with the entry window, sizing and exits pinned to the swept values.
-const TUNED: Params = {
-  ...DEFAULT_PARAMS,
-  // Entry: freshest bursts only, broad buying, creator not selling.
-  maxAge: 5,
-  minBuyers: 6,
-  maxRunup: 1.2,
-  // Sizing: 0.15 SOL per coin, at most 3 SOL at cost across positions.
-  stakeSol: 0.15,
-  maxExposureSol: 3,
-  // Exits: bank the whole position at +20%, stop at -15%, 450-slot cap.
-  tp1: 0.2,
-  tp1PartBps: 10000,
-  stopLoss: 0.15,
-  maxHold: 450,
-  // A single big sell is noise, not a rug: do not exit on it.
-  bigSellSol: 1000,
-  // Guardrail pacing targets coins (the competition needs 20), not fills.
-  targetCoins: 25,
-  targetFills: 40,
-  paceSecs: 21_600,
+// The overrides are grouped so each family can be read — and swept —
+// on its own: entry window, sizing, exits, pacing.
+const ENTRY_WINDOW = {
+  // Entry: only the freshest bursts, broad buying, creator not selling.
+  maxSlotAge: 5,
+  minDistinctBuyers: 6,
+  maxPriceRise: 1.2,
 };
 
-await runBot(createStrategy(TUNED));
+const SIZING = {
+  // Sizing: 0.15 SOL per coin, at most 3 SOL at cost across positions.
+  sizeSol: 0.15,
+  maxTotalExposureSol: 3,
+};
+
+const EXITS = {
+  // Exits: bank the whole position at +20%, stop at -15%, 450-slot cap.
+  firstTarget: 0.2,
+  firstTargetShareBps: 10000,
+  stopLossPct: 0.15,
+  maxHoldSlots: 450,
+  // One big sell is noise, not a rug: do not exit on it.
+  bigSellThresholdSol: 1000,
+};
+
+const PACING = {
+  // Pacing targets coins (the competition needs 20), not fills.
+  paceTargetCoins: 25,
+  paceTargetFills: 40,
+  paceWindowSecs: 21_600,
+};
+
+function tunedSettings(): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...ENTRY_WINDOW,
+    ...SIZING,
+    ...EXITS,
+    ...PACING,
+  };
+}
+
+await runBot(buildBot(tunedSettings()));

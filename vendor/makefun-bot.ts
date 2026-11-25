@@ -33,10 +33,6 @@
 // stdout carries replies only: write diagnostics to stderr (console.error). Determinism: every entry
 // is executed twice and the two action logs must match byte for byte, so never read the clock, the
 // environment or Math.random; seed any randomness from state.hello.seed.
-//
-// This copy was re-typed into the entry from the kit's sdk/ts/makefun-bot.ts (same file, same
-// behaviour); the shim itself is the kit's, not the strategy, so the strategy in strategy.ts is
-// what this entry's edge comes from.
 
 export const PROTOCOL = 'agent-fun/replay/v2';
 /** Harness -> bot lines (hello, batch, done) are at most this many UTF-8 bytes, the `\n` not counted (1 MiB). */
