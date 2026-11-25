@@ -1,34 +1,37 @@
 // Opening-burst scalper for the pump.fun bonding-curve replay
 // (agent-fun/replay/v2).
 //
-// Why this shape: on the dev window every momentum, dip-buy and hold strategy loses
-// money — most pump.fun coins bleed out after launch. The one repeatable edge in the
-// tape is the opening burst: in a coin's first slots after its CreateEvent, broad
-// buying by many distinct wallets, with the creator still holding and no single
-// wallet dominating the flow, marks a launch real buyers are piling into rather
-// than a bundled dump waiting to happen. We buy that burst once, small, and we get
-// out fast: the whole position goes at +20% over cost. The dev tape shows a cliff
-// past +20% (a +30% take-profit collapses the score) because many coins spike
-// +20-30% and then give it back, while a plain stop-loss (-15%) and a time limit
-// (450 slots) bound the downside. Two exits that look sensible do NOT help and are
-// off: selling on one big sell (those dips usually recover — removing it roughly
-// doubles the dev score) and a split exit that banks half and rides a runner
-// (the runner leg almost never pays on dev; tp1PartBps 10000 sells the whole
-// position, and the runner code stays only as the parameter's other end).
-// Any creator sale still exits at once. No pyramiding, no averaging down, one buy
-// per coin.
+// The edge: on the dev window, momentum, dip-buying and holding all lose
+// money — most pump.fun coins bleed out after launch. The one repeatable
+// signal in the tape is the opening burst itself. In a coin's first slots
+// after its CreateEvent, broad buying by many distinct wallets, with the
+// creator still holding and no single wallet dominating the flow, marks a
+// launch real buyers are piling into rather than a bundled dump waiting to
+// happen. We buy that burst once, small, and we leave fast: the whole
+// position goes at +20% over cost. The dev tape shows a cliff past +20%
+// (a +30% take-profit collapses the score) because many coins spike +20-30%
+// and then give it back, while a plain stop-loss (-15%) and a time limit
+// (450 slots) bound the downside.
 //
-// The guardrail needs a round trip of at least 0.01 SOL on each of at least 20
-// coins, so a pace probe keeps the run above 25 coins: when our own coins lag the
-// pace set in block time, we open a tiny 0.01 SOL probe round trip on a liquid
-// curve and sell it as soon as the buy lands. The probe target is coins, not
-// fills — the competition asks for 20 coins and no minimum fills — so probes
-// stay cheap.
+// Two exits that look sensible do NOT help and stay off: selling on one big
+// sell (those dips usually recover — dropping that exit roughly doubles the
+// dev score) and a split exit that banks half and rides a runner (the runner
+// leg almost never pays on dev; tp1PartBps 10000 sells the whole position,
+// and the runner code stays only as the parameter's other end). Any creator
+// sale still exits at once. No pyramiding, no averaging down, one buy per
+// coin.
 //
-// Everything here is a pure function of the hello handshake and the batches the
-// harness sends: no clock, no randomness, no I/O, no environment reads, so the
-// two graded executions produce byte-identical action logs and identical orders
-// per slot.
+// The guardrail needs a round trip of at least 0.01 SOL on each of at least
+// 20 coins, so a pace probe keeps the run above 25 coins: when our own coins
+// lag the pace set in block time, we open a tiny 0.01 SOL probe round trip on
+// a liquid curve and sell it as soon as the buy lands. The probe target is
+// coins, not fills — the competition asks for 20 coins and no minimum fills
+// — so probes stay cheap.
+//
+// Everything here is a pure function of the hello handshake and the batches
+// the harness sends: no clock, no randomness, no I/O, no environment reads,
+// so the two graded executions produce byte-identical action logs and
+// identical orders per slot.
 
 import type { Batch, Bot, BotState, OrderInput, Pubkey } from './vendor/makefun-bot.ts';
 
@@ -142,6 +145,11 @@ export const DEFAULT_PARAMS: Params = {
 
 const LAMPORTS = 1e9;
 const CURVE_FEE = 0.0125;
+
+/** What selling `tokens` now would net, in SOL, after the curve fee and one tx fee. */
+function positionValue(tokens: number, vq: number, vt: number, txSol: number): number {
+  return ((tokens * vq) / (vt + tokens) / LAMPORTS) * (1 - CURVE_FEE) - txSol;
+}
 
 interface Trade {
   slot: number;
@@ -294,7 +302,7 @@ export function createStrategy(p: Params = DEFAULT_PARAMS): Bot {
         const vq = mk ? Number(mk.virtual_quote_reserves) : Number(curve.virtual_quote_reserves);
         const vt = mk ? Number(mk.virtual_token_reserves) : Number(curve.virtual_token_reserves);
         const tokens = Number(pos.token_amount);
-        const value = ((tokens * vq) / (vt + tokens) / LAMPORTS) * (1 - CURVE_FEE) - tx;
+        const value = positionValue(tokens, vq, vt, tx);
         const cost = Number(pos.cost_lamports) / LAMPORTS;
         if (value > h.peakValue) h.peakValue = value;
         const t = tapeOf(mint);
